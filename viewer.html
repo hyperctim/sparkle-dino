@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Sparkle 공룡 AR</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; overflow: hidden; }
+
+    /* 로딩 화면 */
+    #loading {
+      position: fixed; inset: 0;
+      background: #0a0a1a;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 9999; color: #fff; font-family: sans-serif;
+      transition: opacity 0.8s ease;
+    }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+    .loading-emoji { font-size: 72px; animation: bounce 1s infinite; }
+    .loading-title { font-size: 24px; font-weight: bold; margin: 16px 0 8px; }
+    .loading-sub { font-size: 14px; opacity: 0.7; }
+    .loading-bar {
+      width: 200px; height: 6px; background: #333;
+      border-radius: 3px; margin-top: 24px; overflow: hidden;
+    }
+    .loading-fill {
+      height: 100%; background: linear-gradient(90deg, #4CAF50, #8BC34A);
+      border-radius: 3px; animation: loadFill 3s ease-in-out forwards;
+    }
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50%       { transform: translateY(-16px); }
+    }
+    @keyframes loadFill {
+      from { width: 0; }
+      to   { width: 100%; }
+    }
+
+    /* 안내 UI */
+    #guide {
+      position: fixed; top: 0; left: 0; right: 0;
+      padding: 12px 16px;
+      background: rgba(0,0,0,0.55);
+      color: #fff; font-family: sans-serif;
+      display: flex; align-items: center; gap: 12px;
+      z-index: 100;
+    }
+    #guide-emoji { font-size: 28px; }
+    #guide-text  { font-size: 14px; line-height: 1.4; }
+    #guide-name  { font-size: 18px; font-weight: bold; }
+
+    /* 감지 성공 배지 */
+    #detected-badge {
+      position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%);
+      background: rgba(76,175,80,0.9);
+      color: #fff; font-family: sans-serif;
+      padding: 10px 24px; border-radius: 99px;
+      font-size: 15px; font-weight: bold;
+      display: none; z-index: 100;
+      animation: fadeInUp 0.4s ease;
+    }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+      to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+
+    /* 뒤로가기 버튼 */
+    #btn-back {
+      position: fixed; top: 12px; right: 16px;
+      width: 36px; height: 36px;
+      background: rgba(0,0,0,0.6);
+      border-radius: 50%; border: none; cursor: pointer;
+      color: #fff; font-size: 18px; z-index: 200;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* A-Frame 캔버스 전체화면 */
+    a-scene { width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+
+<!-- 로딩 화면 -->
+<div id="loading">
+  <div class="loading-emoji" id="loading-emoji">🦕</div>
+  <div class="loading-title" id="loading-title">공룡을 찾는 중...</div>
+  <div class="loading-sub">카메라를 공룡 카드에 비춰주세요</div>
+  <div class="loading-bar"><div class="loading-fill"></div></div>
+</div>
+
+<!-- 안내 바 -->
+<div id="guide">
+  <div id="guide-emoji">🦖</div>
+  <div>
+    <div id="guide-name">공룡 카드를 찾는 중</div>
+    <div id="guide-text">카드를 카메라에 비춰주세요</div>
+  </div>
+</div>
+
+<!-- 감지 성공 배지 -->
+<div id="detected-badge">✅ 공룡 발견!</div>
+
+<!-- 뒤로가기 -->
+<button id="btn-back" onclick="history.back()">✕</button>
+
+<!-- ═══════════════════════════════════════
+     A-Frame + AR.js 씬
+     CDN에서 라이브러리 로드 (인터넷 필요 시 로컬 번들 교체 가능)
+     로컬 번들: assets/ar_dino/lib/aframe.min.js
+                assets/ar_dino/lib/aframe-ar-nft.min.js
+═══════════════════════════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/aframe@1.6.0/dist/aframe.min.js"></script>
+<script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+
+<a-scene id="ar-scene"
+  embedded
+  vr-mode-ui="enabled: false"
+  loading-screen="enabled: false"
+  arjs="sourceType: webcam;
+        trackingMethod: best;
+        detectionMode: mono_and_matrix;
+        matrixCodeType: 3x3;
+        debugUIEnabled: false;">
+
+  <!-- 에셋 선언 (디노 ID에 따라 JS가 동적으로 주입) -->
+  <a-assets id="scene-assets" timeout="30000">
+  </a-assets>
+
+  <!-- NFT 이미지 타겟 (JS에서 동적으로 url 설정) -->
+  <a-nft id="nft-target"
+    type="nft"
+    url=""
+    smooth="true"
+    smoothCount="10"
+    smoothTolerance="0.01"
+    smoothThreshold="5">
+
+    <!-- 3D 공룡 모델 (JS에서 동적으로 설정) -->
+    <a-entity id="dino-model"
+      position="0 0 0"
+      rotation="-90 0 0"
+      scale="1 1 1">
+    </a-entity>
+
+    <!-- 그림자 원 (땅에 붙은 느낌) -->
+    <a-circle
+      id="dino-shadow"
+      radius="0.6"
+      rotation="-90 0 0"
+      position="0 0 0.01"
+      material="color: #000; opacity: 0.3; transparent: true">
+    </a-circle>
+
+    <!-- 발광 링 (공룡 주위 빛) -->
+    <a-ring
+      id="glow-ring"
+      inner-radius="0.55"
+      outer-radius="0.70"
+      rotation="-90 0 0"
+      position="0 0 0.02"
+      animation="property: rotation;
+                 to: -90 360 0;
+                 loop: true;
+                 dur: 4000;
+                 easing: linear;">
+    </a-ring>
+
+  </a-nft>
+
+  <!-- ── 대체 표시: 이미지 트래킹 대신 마커 기반 ──
+       res/raw 에 이미지를 넣지 않은 경우 hiro 마커로 테스트 가능
+       <a-marker preset="hiro">
+         <a-entity id="dino-model-marker" ...></a-entity>
+       </a-marker>
+  -->
+
+  <a-entity camera></a-entity>
+</a-scene>
+
+<script>
+// ════════════════════════════════════════════════════
+//  공룡 정보 데이터 30종 (DinosaurConfig.java와 동기화)
+//  scale: 모델 크기가 맞지 않으면 이 값을 조정하세요
+// ════════════════════════════════════════════════════
+const DINO_DATA = {
+  // ── 대형 육식 ────────────────────────────────────
+  trex:   { nameKo:'티라노사우루스',      nameEn:'Tyrannosaurus Rex',    emoji:'🦖', color:'#D32F2F', scale:'0.15 0.15 0.15', fact:'이빨 하나가 20cm! 가장 강한 육식 공룡이에요' },
+  spino:  { nameKo:'스피노사우루스',      nameEn:'Spinosaurus',          emoji:'🐉', color:'#E65100', scale:'0.11 0.11 0.11', fact:'등에 돛이 있는 수영하는 공룡이에요!' },
+  raptor: { nameKo:'벨로키랍토르',        nameEn:'Velociraptor',         emoji:'🦅', color:'#C62828', scale:'0.18 0.18 0.18', fact:'깃털이 있었던 영리하고 빠른 공룡이에요!' },
+  allo:   { nameKo:'알로사우루스',        nameEn:'Allosaurus',           emoji:'🦕', color:'#BF360C', scale:'0.14 0.14 0.14', fact:'쥐라기 최강 포식자! 위아래로 크게 벌어지는 턱이 특징이에요' },
+  carno:  { nameKo:'카르노타우루스',      nameEn:'Carnotaurus',          emoji:'🐂', color:'#880E4F', scale:'0.14 0.14 0.14', fact:'이마에 뿔이 달린 유일한 대형 육식 공룡이에요!' },
+  diloph: { nameKo:'딜로포사우루스',      nameEn:'Dilophosaurus',        emoji:'🦎', color:'#558B2F', scale:'0.18 0.18 0.18', fact:'머리에 화려한 뼈 볏이 두 개! 쥐라기 초기 대형 육식 공룡이에요' },
+  giga:   { nameKo:'기가노토사우루스',    nameEn:'Giganotosaurus',       emoji:'🦖', color:'#4A0000', scale:'0.11 0.11 0.11', fact:'티라노사우루스보다 길었던 남미의 거인이에요!' },
+  bary:   { nameKo:'바리오닉스',          nameEn:'Baryonyx',             emoji:'🐊', color:'#37474F', scale:'0.14 0.14 0.14', fact:'앞발에 35cm 갈고리 발톱이! 물고기를 잡아먹은 낚시꾼 공룡이에요' },
+  deino:  { nameKo:'데이노니쿠스',        nameEn:'Deinonychus',          emoji:'🦅', color:'#BF360C', scale:'0.20 0.20 0.20', fact:'발톱 12cm! 무리를 이뤄 사냥하는 전략가 공룡이에요' },
+
+  // ── 방어형 초식 ──────────────────────────────────
+  tricera:{ nameKo:'트리케라톱스',        nameEn:'Triceratops',          emoji:'🦏', color:'#1565C0', scale:'0.13 0.13 0.13', fact:'뿔 3개! 티라노와 맞붙은 최강 초식 공룡이에요' },
+  ankylo: { nameKo:'안킬로사우루스',      nameEn:'Ankylosaurus',         emoji:'🐊', color:'#4E342E', scale:'0.13 0.13 0.13', fact:'온몸 갑옷! 꼬리 곤봉으로 상대를 쓰러뜨렸어요' },
+  stego:  { nameKo:'스테고사우루스',      nameEn:'Stegosaurus',          emoji:'🦕', color:'#2E7D32', scale:'0.12 0.12 0.12', fact:'등에 뼈판 두 줄! 꼬리 가시로 방어했어요' },
+  pachy:  { nameKo:'파키케팔로사우루스',  nameEn:'Pachycephalosaurus',   emoji:'🪨', color:'#6D4C41', scale:'0.18 0.18 0.18', fact:'머리뼈 두께가 25cm! 수컷끼리 박치기로 싸웠어요' },
+  styra:  { nameKo:'스티라코사우루스',    nameEn:'Styracosaurus',        emoji:'🦏', color:'#1976D2', scale:'0.14 0.14 0.14', fact:'트리케라톱스의 사촌! 목 방패에 뿔이 6개나 있어요' },
+  kentro: { nameKo:'켄트로사우루스',      nameEn:'Kentrosaurus',         emoji:'🦔', color:'#1B5E20', scale:'0.18 0.18 0.18', fact:'스테고사우루스의 아프리카 사촌! 등 가시가 더 날카로워요' },
+
+  // ── 용각류 (긴목) ────────────────────────────────
+  brachio:{ nameKo:'브라키오사우루스',    nameEn:'Brachiosaurus',        emoji:'🦒', color:'#6A1B9A', scale:'0.10 0.10 0.10', fact:'목 길이만 9m! 나무 꼭대기 잎을 먹었어요' },
+  diplo:  { nameKo:'디플로도쿠스',        nameEn:'Diplodocus',           emoji:'🦒', color:'#7CB342', scale:'0.09 0.09 0.09', fact:'꼬리를 채찍처럼 휘두르면 음속에 달했어요! 길이 27m 초장신이에요' },
+  apato:  { nameKo:'아파토사우루스',      nameEn:'Apatosaurus',          emoji:'🦕', color:'#00695C', scale:'0.10 0.10 0.10', fact:"예전엔 '브론토사우루스'로 불리다 이름이 바뀐 공룡이에요!" },
+  argent: { nameKo:'아르헨티노사우루스',  nameEn:'Argentinosaurus',      emoji:'🌍', color:'#F57F17', scale:'0.07 0.07 0.07', fact:'역사상 가장 무거운 공룡! 무게 70~80톤이에요' },
+
+  // ── 조각류 (오리주둥이 등) ───────────────────────
+  para:   { nameKo:'파라사우롤로푸스',    nameEn:'Parasaurolophus',      emoji:'🎺', color:'#4527A0', scale:'0.12 0.12 0.12', fact:'머리 볏이 트럼펫! 소리로 무리와 소통했답니다' },
+  iguan:  { nameKo:'이구아노돈',          nameEn:'Iguanodon',            emoji:'🦎', color:'#388E3C', scale:'0.13 0.13 0.13', fact:'가장 먼저 이름 붙여진 공룡 중 하나! 엄지가 뿔처럼 생겼어요' },
+  maia:   { nameKo:'마이아사우라',        nameEn:'Maiasaura',            emoji:'🥚', color:'#A1887F', scale:'0.13 0.13 0.13', fact:"'좋은 엄마 도마뱀'이라는 뜻! 둥지에서 새끼를 돌본 자상한 공룡이에요" },
+
+  // ── 소형 / 고속 ──────────────────────────────────
+  galli:  { nameKo:'갈리미무스',          nameEn:'Gallimimus',           emoji:'🦃', color:'#F9A825', scale:'0.16 0.16 0.16', fact:'타조처럼 생겼고 시속 70km로 달렸어요!' },
+  compy:  { nameKo:'콤프소나투스',        nameEn:'Compsognathus',        emoji:'🐔', color:'#9CCC65', scale:'0.30 0.30 0.30', fact:'닭 크기의 가장 작은 공룡 중 하나! 민첩하게 곤충을 사냥했어요' },
+  micro:  { nameKo:'마이크로랍토르',      nameEn:'Microraptor',          emoji:'🦋', color:'#5C6BC0', scale:'0.30 0.30 0.30', fact:'날개가 4개인 신기한 공룡! 나무에서 활공하며 이동했어요' },
+
+  // ── 익룡 / 해양 ──────────────────────────────────
+  ptero:  { nameKo:'프테라노돈',          nameEn:'Pteranodon',           emoji:'🦇', color:'#00838F', scale:'0.14 0.14 0.14', fact:'날개 9m! 하늘을 지배한 익룡이에요' },
+  quetz:  { nameKo:'케찰코아틀루스',      nameEn:'Quetzalcoatlus',       emoji:'✈️', color:'#0277BD', scale:'0.10 0.10 0.10', fact:'역사상 가장 큰 비행 생물! 날개 11m로 경비행기 크기예요' },
+  plesi:  { nameKo:'플레시오사우루스',    nameEn:'Plesiosaurus',         emoji:'🌊', color:'#006064', scale:'0.16 0.16 0.16', fact:'목이 긴 바다 파충류! 네스 호 괴물 전설의 주인공이에요' },
+  mosa:   { nameKo:'모사사우루스',        nameEn:'Mosasaurus',           emoji:'🦈', color:'#0D47A1', scale:'0.12 0.12 0.12', fact:'바다의 최강 포식자! 쥐라기 월드에서 유명한 그 공룡이에요' },
+  theri:  { nameKo:'테리지노사우루스',    nameEn:'Therizinosaurus',      emoji:'🌿', color:'#43A047', scale:'0.13 0.13 0.13', fact:'손톱 길이가 1m! 하지만 초식이에요. 나뭇잎을 끌어당기는 데 썼어요' },
+};
+
+// ════════════════════════════════════════════════════
+//  ★ 배포 설정 — GitHub 계정명·저장소명만 수정하세요
+// ════════════════════════════════════════════════════
+const GITHUB_USER  = 'hyperctim';          // GitHub 계정명
+const GITHUB_REPO  = 'sparkle-dino';       // ← 저장소명
+
+// GitHub Pages: viewer.html, NFT 마커
+const PAGES_BASE   = `https://${GITHUB_USER}.github.io/${GITHUB_REPO}`;
+
+// jsDelivr CDN: GLB 모델 (GitHub 저장소 자동 연동, 전 세계 CDN)
+const JSDELIVR_BASE = `https://cdn.jsdelivr.net/gh/${GITHUB_USER}/${GITHUB_REPO}@main`;
+
+// 3D 모델 URL (jsDelivr)
+function getBestModelUrl(id) {
+  return `${JSDELIVR_BASE}/models/${id}.glb`;
+}
+
+// ════════════════════════════════════════════════════
+//  URL 파라미터에서 디노 ID 추출
+// ════════════════════════════════════════════════════
+const params = new URLSearchParams(window.location.search);
+const dinoId = (params.get('dino') || 'trex').toLowerCase();
+const dino   = DINO_DATA[dinoId] || DINO_DATA['trex'];
+
+// ════════════════════════════════════════════════════
+//  UI 초기화
+// ════════════════════════════════════════════════════
+document.getElementById('loading-emoji').textContent = dino.emoji;
+document.getElementById('loading-title').textContent = dino.nameKo + ' 준비 중...';
+document.getElementById('guide-emoji').textContent   = dino.emoji;
+document.getElementById('guide-name').textContent    = dino.nameKo;
+document.getElementById('guide-text').textContent    = '카드를 천천히 카메라 앞에 비춰주세요';
+
+// ════════════════════════════════════════════════════
+//  A-Frame 씬 설정 (공룡별 NFT 마커 + 모델 주입)
+// ════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  const scene      = document.getElementById('ar-scene');
+  const nftTarget  = document.getElementById('nft-target');
+  const dinoModel  = document.getElementById('dino-model');
+  const glowRing   = document.getElementById('glow-ring');
+
+  // ── NFT 마커 URL (GitHub Pages) ────────────────────────────
+  nftTarget.setAttribute('url',
+    `${PAGES_BASE}/nft_markers/${dinoId}/${dinoId}`
+  );
+
+  // ── 3D 모델 URL ────────────────────────────────────────────
+  // 방식 A (기본): 앱 내 assets에 GLB 포함 → 오프라인 동작, 앱 용량 증가
+  // const modelUrl = `http://127.0.0.1:8765/ar_dino/models/${dinoId}.glb`;
+
+  // 방식 B (권장): 서버에서 스트리밍 → 앱 용량 최소화, 인터넷 필요
+  // 예) const modelUrl = `https://your-cdn.com/sparkle-dino/models/${dinoId}.glb`;
+
+  // 방식 C (하이브리드): 첫 실행 시 다운로드 후 캐싱 (아래 loadModel 함수 사용)
+  const modelUrl = getBestModelUrl(dinoId);
+
+  dinoModel.setAttribute('gltf-model', modelUrl);
+  dinoModel.setAttribute('scale', dino.scale);
+
+  // 모델 등장 애니메이션 (위에서 떨어지는 효과)
+  dinoModel.setAttribute('animation__drop',
+    'property: position; from: 0 1 0; to: 0 0 0; dur: 800; easing: easeOutBounce; startEvents: model-loaded'
+  );
+  // 회전 애니메이션
+  dinoModel.setAttribute('animation__rotate',
+    'property: rotation; to: -90 360 0; loop: true; dur: 10000; easing: linear'
+  );
+
+  // 발광 링 색상을 공룡 색으로
+  glowRing.setAttribute('material',
+    `color: ${dino.color}; opacity: 0.6; transparent: true`
+  );
+
+  // ── NFT 트래킹 이벤트 ──
+  nftTarget.addEventListener('targetFound', () => {
+    console.log('[AR] 타겟 발견: ' + dinoId);
+
+    const badge = document.getElementById('detected-badge');
+    badge.textContent = dino.emoji + '  ' + dino.nameKo + ' 발견!';
+    badge.style.display = 'block';
+    badge.style.background = dino.color + 'ee';
+
+    document.getElementById('guide-text').textContent = dino.fact;
+    setTimeout(() => { badge.style.display = 'none'; }, 3000);
+  });
+
+  nftTarget.addEventListener('targetLost', () => {
+    console.log('[AR] 타겟 소실');
+    document.getElementById('guide-text').textContent = '카드를 다시 카메라 앞에 비춰주세요';
+  });
+});
+
+// ════════════════════════════════════════════════════
+//  A-Frame 씬 로드 완료 → 로딩 화면 제거
+// ════════════════════════════════════════════════════
+document.querySelector('a-scene').addEventListener('loaded', () => {
+  setTimeout(() => {
+    const loading = document.getElementById('loading');
+    loading.classList.add('hidden');
+    setTimeout(() => { loading.style.display = 'none'; }, 800);
+  }, 1500);
+});
+
+// ════════════════════════════════════════════════════
+//  에러 처리: 모델 로드 실패 시 기본 도형으로 대체
+// ════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  const model = document.getElementById('dino-model');
+  model.addEventListener('model-error', () => {
+    console.warn('[AR] GLB 모델 로드 실패 → 기본 박스로 대체');
+    // 모델 없을 때 색상 박스로 대체 (개발/테스트용)
+    model.removeAttribute('gltf-model');
+    model.setAttribute('geometry', 'primitive: box; width: 0.3; height: 0.4; depth: 0.3');
+    model.setAttribute('material', `color: ${dino.color}; metalness: 0.3; roughness: 0.5`);
+    model.setAttribute('animation__float',
+      'property: position; from: 0 0 0; to: 0 0.05 0; dir: alternate; loop: true; dur: 1200; easing: easeInOutSine'
+    );
+  });
+});
+</script>
+
+</body>
+</html>
